@@ -1,0 +1,4 @@
+* text=auto
+*.svg text
+*.ico binary
+licenses/** -text
