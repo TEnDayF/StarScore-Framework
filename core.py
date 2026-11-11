@@ -8,7 +8,7 @@ from scipy import signal, ndimage
 import mido
 import app_settings
 
-VERSION = '0.10.1-framework'
+VERSION = '0.10.2-framework'
 ROLES = {'lead':'主旋律', 'counter':'副旋律', 'accompaniment':'和弦伴奏', 'bass':'Bass', 'drums':'鼓组', 'unknown':'未确定'}
 from voice_tracking import melodic_path as anchored_path, register_anchor, bass_partition, drum_family
 MODEL_HASHES = {'small':'925f55af65a20ebc4f8b45ceaf095a12b72493d436cb112623cd0041a1af23d4',

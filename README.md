@@ -5,12 +5,12 @@
 
 [简体中文](README.md) · [English](README.en.md) · [下载 Windows 应用](https://github.com/TEnDayF/StarScore-Framework/releases/latest)
 
-![Windows x64](https://img.shields.io/badge/Windows-x64-789CFF) ![Version](https://img.shields.io/badge/version-0.10.1-AC8CFF) ![GPL](https://img.shields.io/badge/code-GPL--3.0-789CFF)
+![Windows x64](https://img.shields.io/badge/Windows-x64-789CFF) ![Version](https://img.shields.io/badge/version-0.10.2-AC8CFF) ![GPL](https://img.shields.io/badge/code-GPL--3.0-789CFF)
 </div>
 
 ## 下载即开
 
-在 [Releases](https://github.com/TEnDayF/StarScore-Framework/releases/latest) 下载 **StarScore-0.10.1-Windows-x64.zip**，完整解压后双击 **StarScore.exe**。工作台启动不需要联网、安装 Python 或输入命令。不要只拖出 EXE；它需要旁边的 runtime 和源码文件。
+在 [Releases](https://github.com/TEnDayF/StarScore-Framework/releases/latest) 下载 **StarScore-0.10.2-Windows-x64.zip**，完整解压后双击 **StarScore.exe**。工作台启动不需要联网、安装 Python 或输入命令。不要只拖出 EXE；它需要旁边的 runtime 和源码文件。
 
 **应用包不含模型。** 默认可以打开工作台、编辑已有 StarScore 工程和导出 MIDI。音频转写、分离、Vital 渲染与 FLP 导出，需要配置相应外部资源。缺资源时会提示具体缺项，保留已有工程和待处理队列。
 
@@ -44,4 +44,4 @@ Python 3.12、Windows x64：安装 requirements.txt 后运行 `python main.py`�
 
 ## 许可与源码材料
 
-框架代码：[GPL-3.0](LICENSE)。第三方：[署名及许可说明](THIRD_PARTY.md)。Windows 包包含可替换的动态运行库；配套 **StarScore-0.10.1-Runtime-Sources.zip** 与应用包放在同一 Release，供取得运行库源码和构建说明。普通用户无需下载源码材料包即可使用应用。
+框架代码：[GPL-3.0](LICENSE)。第三方：[署名及许可说明](THIRD_PARTY.md)。Windows 包包含可替换的动态运行库；配套 **StarScore-0.10.2-Runtime-Sources.zip** 与应用包放在同一 Release，供取得运行库源码和构建说明。普通用户无需下载源码材料包即可使用应用。

@@ -146,6 +146,49 @@ def write_midi(track,tempos,path):
     if error>.002 or any(a[1:]!=b[1:] for a,b in zip(found,expected)):raise ValueError(ui_text('Vital 配套 MIDI 时序校验失败'))
     return error*1000
 
+def _vst3_chunks(data):
+    """Validate the VST3 directory and find Comp by tag, never by entry order."""
+    import struct
+    error = 'Vital 状态格式不兼容：VST3 目录或组件边界无效'
+    if len(data) < 48 or data[:4] != b'VST3':
+        raise ValueError(error)
+    offset = struct.unpack_from('<q', data, 40)[0]
+    if offset < 48 or offset + 8 > len(data) or data[offset:offset+4] != b'List':
+        raise ValueError(error)
+    count = struct.unpack_from('<i', data, offset+4)[0]
+    if count < 1 or count > (len(data)-offset-8)//20:
+        raise ValueError(error)
+    entries = []
+    for i in range(count):
+        tag, pos, size = struct.unpack_from('<4sqq', data, offset+8+i*20)
+        if pos < 48 or size < 0 or pos+size > offset:
+            raise ValueError(error)
+        entries.append((tag, data[pos:pos+size]))
+    if sum(tag == b'Comp' for tag, _ in entries) != 1:
+        raise ValueError(error)
+    return entries
+
+
+def _vital_component(chunk):
+    """Read the supported VstW/CcnK wrapper and preserve byte-exact JSON suffix."""
+    import struct
+    error = 'Vital 状态格式不兼容：预设正文或长度无效'
+    if len(chunk) < 176 or chunk[:4] != b'VstW' or chunk[16:20] != b'CcnK':
+        raise ValueError(error)
+    size = struct.unpack_from('>I', chunk, 172)[0]
+    if size < 2 or 176+size != len(chunk) or struct.unpack_from('>I', chunk, 20)[0] != len(chunk)-24:
+        raise ValueError(error)
+    try:
+        text = chunk[176:].decode('utf-8')
+        loaded, used = json.JSONDecoder().raw_decode(text)
+    except (ValueError, UnicodeError) as exc:
+        raise ValueError(error) from exc
+    if not isinstance(loaded, dict) or not isinstance(loaded.get('settings'), dict):
+        raise ValueError(error)
+    # raw_decode counts Unicode characters, while the wrapper stores byte lengths.
+    return loaded, chunk[176+len(text[:used].encode('utf-8')):]
+
+
 def load_vital(preset_path,plugin_path):
     """Load and verify a preset; caller must use an isolated process."""
     import struct
@@ -153,13 +196,12 @@ def load_vital(preset_path,plugin_path):
     except ImportError as e:raise RuntimeError(ui_text('Vital 试听适配器缺少 Pedalboard。请按适配器说明配置运行环境；预设制作和 MIDI 编辑仍可使用。')) from e
     p=core.read_json(preset_path);plugin=pedalboard.load_plugin(str(plugin_path))
     if plugin.name!='Vital':raise ValueError(ui_text('所选插件不是 Vital'))
-    data=plugin.preset_data;offset=struct.unpack_from('<q',data,40)[0];count=struct.unpack_from('<i',data,offset+4)[0]
+    data=plugin.preset_data
     entries=[]
-    for i in range(count):
-        tag,pos,size=struct.unpack_from('<4sqq',data,offset+8+i*20);chunk=data[pos:pos+size]
+    for tag,chunk in _vst3_chunks(data):
         if tag==b'Comp':
-            start=chunk.index(b'{');_,used=json.JSONDecoder().raw_decode(chunk[start:].decode('utf-8'))
-            header=bytearray(chunk[:start]);tail=chunk[start+used:]
+            _,tail=_vital_component(chunk);start=176
+            header=bytearray(chunk[:start])
             raw=json.dumps(p,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode('utf-8')+tail
             if header[:4]!=b'VstW' or header[16:20]!=b'CcnK' or start!=176:raise ValueError(ui_text('Vital 状态格式不兼容'))
             struct.pack_into('>I',header,20,len(header)+len(raw)-24);struct.pack_into('>I',header,start-4,len(raw))
@@ -170,9 +212,8 @@ def load_vital(preset_path,plugin_path):
     for tag,v in entries:table+=struct.pack('<4sqq',tag,pos,len(v));pos+=len(v)
     plugin.preset_data=bytes(header)+payload+table
     # Confirm the host accepted this exact patch, not a fallback/default sound.
-    checked=plugin.preset_data;table_offset=struct.unpack_from('<q',checked,40)[0]
-    tag,pos,size=struct.unpack_from('<4sqq',checked,table_offset+8)
-    component=checked[pos:pos+size];loaded,_=json.JSONDecoder().raw_decode(component[component.index(b'{'):].decode('utf-8'))
+    component=next(chunk for tag,chunk in _vst3_chunks(plugin.preset_data) if tag==b'Comp')
+    loaded,_=_vital_component(component)
     if loaded.get('preset_name')!=p['preset_name']:raise ValueError(ui_text('Vital 预设名称回读不一致'))
     for key in ('filter_1_cutoff','env_1_attack','env_1_sustain','reverb_on','osc_1_on'):
         if abs(loaded['settings'][key]-p['settings'][key])>1e-4:raise ValueError(ui_text('Vital 参数回读不一致：')+key)
