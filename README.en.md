@@ -8,7 +8,7 @@
 
 ## Download and open
 
-Download **StarScore-0.10.2-Windows-x64.zip** from Releases, extract the entire folder and double-click **StarScore.exe**. The workspace starts without internet, a Python installation or terminal commands. Keep the runtime and application files beside the executable.
+Download **StarScore-0.11.0-Windows-x64.zip** from Releases, extract the entire folder and double-click **StarScore.exe**. The workspace starts without internet, a Python installation or terminal commands. Keep the runtime and application files beside the executable.
 
 **No models are included.** Editing existing StarScore projects and MIDI export are available independently of inference. Transcription requires your own MuScriptor GGUF, native bridge engine and FFmpeg. UMXHQ additionally requires four weights and a separate Python environment with requirements-separation.txt. Vital playback requires your own Vital VST3 and the optional requirements-vital.txt environment.
 
@@ -30,4 +30,12 @@ Windows x64 / Python 3.12: install requirements.txt and run `python main.py`. Op
 
 Only runtime application code, UI assets, launcher/bridge sources, setup instructions and license materials are published here. Development tests and private assets remain outside the public repository.
 
-Application: [GPL-3.0](LICENSE). [Third-party notices](THIRD_PARTY.md). Replaceable dynamic runtime libraries accompany the portable package. Their sources and build instructions are supplied as **StarScore-0.10.2-Runtime-Sources.zip** on the same Release. End users do not need that source-materials archive to run the application.
+Application: [GPL-3.0](LICENSE). [Third-party notices](THIRD_PARTY.md). Replaceable dynamic runtime libraries accompany the portable package. Their sources and build instructions are supplied as **StarScore-0.11.0-Runtime-Sources.zip** on the same Release. End users do not need that source-materials archive to run the application.
+
+## Song information and tempo
+
+Select an imported queue item and choose **Song info** (Ctrl+Shift+I) to enter title, artist, BPM, meter and the first downbeat in the source. Existing projects can also be edited; re-export MIDI / FL after changes. Fixed BPM and meter are written consistently to both formats while preserving note times in seconds. Bar alignment adds leading silence without deleting pickups.
+
+**Measure BPM** requires user-configured FFmpeg and returns BPM/pulse suggestions without overwriting manual BPM. Confirm half/double tempo, meter and downbeat yourself. Variable tempo maps currently support MIDI only; FL export requires an explicit fixed-BPM selection.
+
+0.11.0 also handles temporary Windows reader locks during progress-file replacement and unifies displayed and release versions.

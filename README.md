@@ -5,12 +5,12 @@
 
 [简体中文](README.md) · [English](README.en.md) · [下载 Windows 应用](https://github.com/TEnDayF/StarScore-Framework/releases/latest)
 
-![Windows x64](https://img.shields.io/badge/Windows-x64-789CFF) ![Version](https://img.shields.io/badge/version-0.10.2-AC8CFF) ![GPL](https://img.shields.io/badge/code-GPL--3.0-789CFF)
+![Windows x64](https://img.shields.io/badge/Windows-x64-789CFF) ![Version](https://img.shields.io/badge/version-0.11.0-AC8CFF) ![GPL](https://img.shields.io/badge/code-GPL--3.0-789CFF)
 </div>
 
 ## 下载即开
 
-在 [Releases](https://github.com/TEnDayF/StarScore-Framework/releases/latest) 下载 **StarScore-0.10.2-Windows-x64.zip**，完整解压后双击 **StarScore.exe**。工作台启动不需要联网、安装 Python 或输入命令。不要只拖出 EXE；它需要旁边的 runtime 和源码文件。
+在 [Releases](https://github.com/TEnDayF/StarScore-Framework/releases/latest) 下载 **StarScore-0.11.0-Windows-x64.zip**，完整解压后双击 **StarScore.exe**。工作台启动不需要联网、安装 Python 或输入命令。不要只拖出 EXE；它需要旁边的 runtime 和源码文件。
 
 **应用包不含模型。** 默认可以打开工作台、编辑已有 StarScore 工程和导出 MIDI。音频转写、分离、Vital 渲染与 FLP 导出，需要配置相应外部资源。缺资源时会提示具体缺项，保留已有工程和待处理队列。
 
@@ -44,4 +44,12 @@ Python 3.12、Windows x64：安装 requirements.txt 后运行 `python main.py`�
 
 ## 许可与源码材料
 
-框架代码：[GPL-3.0](LICENSE)。第三方：[署名及许可说明](THIRD_PARTY.md)。Windows 包包含可替换的动态运行库；配套 **StarScore-0.10.2-Runtime-Sources.zip** 与应用包放在同一 Release，供取得运行库源码和构建说明。普通用户无需下载源码材料包即可使用应用。
+框架代码：[GPL-3.0](LICENSE)。第三方：[署名及许可说明](THIRD_PARTY.md)。Windows 包包含可替换的动态运行库；配套 **StarScore-0.11.0-Runtime-Sources.zip** 与应用包放在同一 Release，供取得运行库源码和构建说明。普通用户无需下载源码材料包即可使用应用。
+
+## 歌曲信息与节奏
+
+导入歌曲后选择队列项，点击 **歌曲信息**（Ctrl+Shift+I），填写曲名、作者、BPM、拍号和原曲第一小节的第一拍。已有工程也可编辑；修改后重新导出 MIDI / FL。固定 BPM 和拍号统一写入两种格式，保留音符的原始秒时间；对齐小节时只添加前置静音，不删除前奏。
+
+**自动测量**需要自行配置 FFmpeg，返回 BPM 候选与拍点参考，不会覆盖手动 BPM。半速/倍速、拍号及小节第一拍仍需确认。变化速度图目前仅支持 MIDI；FL 导出要求明确选择固定 BPM，避免静默套用错误速度。
+
+0.11.0 同时修复 Windows 短暂读锁导致进度文件写入失败的问题，并统一窗口与发布版本号。

@@ -382,3 +382,7 @@ EN.update({'配置已变更，请重新检查；保存后用于后续任务。':
 EN.update({'检查超时。请确认所选程序可独立运行，再重试；设置尚未保存。': 'Check timed out. Confirm the selected program runs independently and retry. Settings have not been saved.', '无法启动或读取所选资源。请检查路径、访问权限及程序兼容性。': 'Cannot launch or read the selected resource. Check its path, permissions and compatibility.'})
 
 EN.update({'Vital 初始化预设': 'Vital initialization preset', 'FL 导出结构模板': 'FL export scaffold', '框架源码不附带此模板。请在设置 → 模型与引擎关联自己有权使用的模板；详见 README。': 'This source framework does not include this template. Select a template you are authorized to use in Settings > Models and engines. See README.'})
+
+EN[" · 转写与修正"] = " · Transcription and editing"
+
+EN['打开同目录 FLP，切到 SONG 模式播放。旋律已内嵌 Vital；增强工程鼓优先采用估计分离轨采样，其余使用基础合成鼓。\nBPM 与拍号来自歌曲信息；音符不量化。对齐小节时会按报告统一添加前置静音。\n请保留整个输出文件夹。移动文件夹后如 FL 提示缺少采样，选择此处 Samples 文件夹重新定位。\n需要本机安装 Vital VST3。验证目标 FL Studio 25.2.4；其他版本兼容性未验证。\n'] = 'Open the FLP here and play in SONG mode. Vital is embedded; keep the Samples folder. BPM and meter come from Song info. Notes are not quantized; any leading silence is documented in the export report. Vital VST3 must be installed. Target: FL Studio 25.2.4; other versions are unverified.\n'

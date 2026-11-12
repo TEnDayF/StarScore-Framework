@@ -121,10 +121,11 @@ def make_preset(track,options,harmonics=None):
              reverb_decay_time=-.5+space*1.5,reverb_pre_low_cutoff=55.)
     return p
 
-def write_midi(track,tempos,path):
+def write_midi(track,tempos,path,project=None):
     """Full song, absolute original times; no program changes to replace Vital."""
     notes=core.active_notes(track);mid=mido.MidiFile(type=1,ticks_per_beat=960,charset='utf-8')
     meta=mido.MidiTrack();mid.tracks.append(meta);last=0
+    if project is not None:__import__('song_info').midi_metadata(meta,project)
     for tempo in tempos:
         tick=core.seconds_to_tick(tempo['time'],tempos);meta.append(mido.MetaMessage('set_tempo',tempo=int(tempo['tempo']),time=tick-last));last=tick
     tr=mido.MidiTrack();mid.tracks.append(tr);tr.append(mido.MetaMessage('track_name',name=track['name']));events=[]
@@ -278,7 +279,7 @@ def export_bundle(project,folder,output,options,render=True,plugin=None,progress
             opt=copy.deepcopy(options[t['id']]);stem=file_stem(t,opt);progress(ui_text('制作 ')+opt['name'],i/len(tracks));h=None
             analysis={'status':'template','reason':ui_text('使用音色家族模板'),'windows':0}
             patch,analysis=reference_patch(t,opt,folder,project,cancel);preset=directory/(stem+'.vital');core.save_json(preset,patch)
-            midi=directory/(stem+'.mid');error=write_midi(t,project['tempos'],midi)
+            midi=directory/(stem+'.mid');view=__import__('song_info').export_view(project);mt=next(v for v in view['tracks'] if v['id']==t['id']);error=write_midi(mt,view['tempos'],midi,view)
             row={'track_id':t['id'],'source_group':t.get('source_group'),'role':t['role'],'track_name':t['name'],
                  'preset':preset.name,'midi':midi.name,'notes':len(core.active_notes(t)),'max_time_error_ms':error,
                  'options':opt,'analysis':analysis,'preview_status':ui_text('未请求试听'),'preview':None}

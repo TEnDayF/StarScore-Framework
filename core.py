@@ -8,7 +8,7 @@ from scipy import signal, ndimage
 import mido
 import app_settings
 
-VERSION = '0.10.2-framework'
+VERSION = '0.11.0'
 ROLES = {'lead':'主旋律', 'counter':'副旋律', 'accompaniment':'和弦伴奏', 'bass':'Bass', 'drums':'鼓组', 'unknown':'未确定'}
 from voice_tracking import melodic_path as anchored_path, register_anchor, bass_partition, drum_family
 MODEL_HASHES = {'small':'925f55af65a20ebc4f8b45ceaf095a12b72493d436cb112623cd0041a1af23d4',
@@ -39,10 +39,23 @@ def sha256(p):
 
 def save_json(p, data):
     p=Path(p);p.parent.mkdir(parents=True,exist_ok=True)
-    tmp=p.with_name(p.name+'.writing')
-    with open(tmp,'w',encoding='utf-8') as f:
+    # Concurrent writers must never share a temporary file. Keep failed writes
+    # for diagnosis; only a successful atomic replacement publishes new data.
+    tmp=p.with_name(p.name+'.'+uuid.uuid4().hex+'.writing')
+    with open(tmp,'x',encoding='utf-8') as f:
         json.dump(data,f,ensure_ascii=False,indent=2,allow_nan=False);f.flush();os.fsync(f.fileno())
-    os.replace(tmp,p)
+    deadline=time.monotonic()+2.0
+    while True:
+        try:
+            os.replace(tmp,p)
+            return
+        except PermissionError:
+            # Windows readers/scanners may briefly deny delete sharing. Retry
+            # only permission failures, with a bounded wait; never report success
+            # for a permanently locked/read-only destination.
+            if os.name!='nt' or time.monotonic()>=deadline:
+                raise
+            time.sleep(0.05)
 
 def read_json(p):return json.loads(Path(p).read_text(encoding='utf-8'))
 def safe_name(s):return re.sub(r'[<>:"/\\|?*\x00-\x1f]','_',s).strip('. ')[:80] or 'song'
@@ -262,16 +275,22 @@ def seconds_to_tick(sec,tempos,ppq=960):
 def active_notes(track):return [n for n in track['notes'] if not n.get('deleted') and not n.get('candidate')]
 
 def export_project(project,directory,fixed_bpm=None):
+    import song_info
+    if fixed_bpm and project.get('song_info'):
+        project=copy.deepcopy(project);song_info.apply(project,dict(project['song_info'],mode='fixed',bpm=fixed_bpm))
+    project=song_info.export_view(project)
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=False)
     tempos=project['tempos'];receipts=[]
     if fixed_bpm:
         outtempos=[{'time':0.,'tempo':int(round(60e6/fixed_bpm))}]
     else:outtempos=tempos
+    tempos=outtempos
     for t in project['tracks']:
         notes=active_notes(t)
         if not notes:continue
         mid=mido.MidiFile(type=1,ticks_per_beat=960,charset='utf-8');meta=mido.MidiTrack();mid.tracks.append(meta)
         meta.append(mido.MetaMessage('track_name',name='Shared tempo / unquantized'))
+        song_info.midi_metadata(meta,project)
         last=0
         for m in outtempos:
             tick=seconds_to_tick(m['time'],outtempos);meta.append(mido.MetaMessage('set_tempo',tempo=m['tempo'],time=tick-last));last=tick
@@ -299,7 +318,7 @@ def export_project(project,directory,fixed_bpm=None):
         maxerr=0.
         for (pitch,sec),n in zip(got,expected):
             if pitch!=n['pitch']:raise ValueError(ui_text('MIDI 回读音高不一致'))
-            target=(seconds_to_tick(n['start'],tempos)/960*60/fixed_bpm) if fixed_bpm else n['start']
+            target=n['start']
             maxerr=max(maxerr,abs(sec-target))
         if maxerr>.002:raise ValueError(f'{ui_text('MIDI 时间误差超过 2 ms：')}{maxerr}')
         expected_all=[]
@@ -309,7 +328,7 @@ def export_project(project,directory,fixed_bpm=None):
         maxall=0.
         for (pitch,kind,sec),(tick,ek,ep,original) in zip(got_all,sorted(expected_all)):
             if pitch!=ep or kind!=ek:raise ValueError(ui_text('MIDI 起止事件顺序不一致'))
-            target=tick/960*60/fixed_bpm if fixed_bpm else original
+            target=original
             maxall=max(maxall,abs(sec-target))
         if len(got_all)!=len(expected_all) or maxall>.002:raise ValueError(ui_text('MIDI 起止时间回读不通过'))
         receipts.append({'file':p.name,'notes':len(notes),'sha256':sha256(p),'max_onset_error_ms':maxerr*1000,'max_event_error_ms':maxall*1000,'track_id':t['id']})
@@ -360,7 +379,7 @@ def apply_candidate(project,cid):
     a['end']=max(a['end'],b['end']);a['origin']='user';b['deleted']=True;b['origin']='user'
     c['accepted']=True;project['revision']+=1
 
-def process(source,output_root,model='medium',adaptive=True,progress=lambda *a:None,cancel=lambda:False,complex_mode=False):
+def process(source,output_root,model='medium',adaptive=True,progress=lambda *a:None,cancel=lambda:False,complex_mode=False,song_metadata=None):
     from adapter_registry import preflight
     preflight(model,complex_mode)
     source=Path(source);out=Path(output_root)
@@ -401,6 +420,14 @@ def process(source,output_root,model='medium',adaptive=True,progress=lambda *a:N
         if complex_mode:
             project.update(analysis_mode='complex',separation=separation)
             project['limitations']=[ui_text('分离来源为估计，可能残留串音；其他来源可能仍含中高频 Bass'),ui_text('力度为分离轨相对能量估计，连续滑音未恢复'),ui_text('鼓样为估计分离轨片段，可能含复合击打'),ui_text('速度图是估计，音符保留原始时间且不量化')]
+        if song_metadata:
+            import song_info
+            value=song_info.validate(song_metadata)
+            if value['mode']=='auto':
+                try:
+                    measured=song_info.measure_array(x);value.update(mode='fixed',bpm=measured['bpm'],measurement=measured,confirmed=False)
+                except ValueError as e:value['measurement_error']=str(e)
+            song_info.apply(project,value)
         save_json(job/'project.json',project)
         progress(ui_text('导出并回读 MIDI'),.95);receipt=export_project(project,job/'midi')
         found={t['role'] for t in tracks if active_notes(t)};missing=[ROLES[r] for r in ('lead','counter','accompaniment','bass') if r not in found]

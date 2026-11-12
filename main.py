@@ -51,10 +51,10 @@ def button(label,callback,primary=False):
 
 class Job(QThread):
     update=Signal(str,float);done=Signal(object);error=Signal(str)
-    def __init__(self,source,out,model,adaptive,complex_mode=False):
-        super().__init__();self.args=(source,out,model,adaptive);self.cancelled=False;self.complex_mode=complex_mode
+    def __init__(self,source,out,model,adaptive,complex_mode=False,song_metadata=None):
+        super().__init__();self.args=(source,out,model,adaptive);self.cancelled=False;self.complex_mode=complex_mode;self.song_metadata=song_metadata
     def run(self):
-        try:self.done.emit(core.process(*self.args,progress=self.update.emit,cancel=lambda:self.cancelled,complex_mode=self.complex_mode))
+        try:self.done.emit(core.process(*self.args,progress=self.update.emit,cancel=lambda:self.cancelled,complex_mode=self.complex_mode,song_metadata=self.song_metadata))
         except core.Cancelled:self.error.emit(ui_text('已取消；已提交的产物保留在任务目录'))
         except Exception:self.error.emit(traceback.format_exc())
 
@@ -178,7 +178,7 @@ class Window(QMainWindow):
         page=QWidget();l=QVBoxLayout(page);l.setContentsMargins(18,18,18,18);l.setSpacing(13)
         drop=QLabel(ui_text('把歌曲拖到这里，或点击「添加歌曲」\nWAV / MP3 / FLAC / M4A / OGG / AIFF   ·   支持多首队列，逐首分析'))
         drop.setAlignment(Qt.AlignmentFlag.AlignCenter);drop.setMinimumHeight(92);drop.setObjectName('dropZone');l.addWidget(drop)
-        row=QHBoxLayout();row.addWidget(button(ui_text('添加歌曲'),self.add_files));row.addWidget(button(ui_text('重新排队所选'),self.retry_job));row.addWidget(button(ui_text('移除等待项'),self.remove_job));row.addStretch();row.addWidget(button(ui_text('打开历史工程'),self.open_project));l.addLayout(row)
+        row=QHBoxLayout();row.addWidget(button(ui_text('添加歌曲'),self.add_files));row.addWidget(button('歌曲信息 / Song info',self.edit_song_info));row.addWidget(button(ui_text('重新排队所选'),self.retry_job));row.addWidget(button(ui_text('移除等待项'),self.remove_job));row.addStretch();row.addWidget(button(ui_text('打开历史工程'),self.open_project));l.addLayout(row)
         self.queue=QTableWidget(0,4);self.queue.setHorizontalHeaderLabels([ui_text('歌曲'),ui_text('状态'),ui_text('进度'),ui_text('结果目录')]);self.queue.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows);self.queue.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.queue.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch);self.queue.horizontalHeader().setSectionResizeMode(3,QHeaderView.ResizeMode.Stretch);self.queue.setColumnWidth(1,160);self.queue.setColumnWidth(2,80);self.queue.doubleClicked.connect(self.open_job);l.addWidget(self.queue,1)
         path=QHBoxLayout();path.addWidget(QLabel(ui_text('输出到')));self.output=QLineEdit(self.settings.get('output',str(root_output())));path.addWidget(self.output,1);path.addWidget(button(ui_text('选择文件夹'),self.choose_output));l.addLayout(path)
@@ -233,7 +233,7 @@ class Window(QMainWindow):
             if p.suffix.lower() not in ('.mp3','.wav','.flac','.m4a','.ogg','.aiff','.aif','.wma','.mp4'):issues.append(p.name+ui_text('：不支持的格式'));continue
             if not p.is_file():issues.append(p.name+ui_text('：文件不存在'));continue
             if key in known:issues.append(p.name+ui_text('：重复，可选择原任务重新排队'));continue
-            self.jobs.append({'source':str(p),'status':'等待中','progress':'','folder':''});known.add(key);added+=1
+            self.jobs.append({'source':str(p),'status':'等待中','progress':'','folder':'','song_info':__import__('song_info').defaults(p.stem)});known.add(key);added+=1
         self.refresh_queue()
         message=f'{ui_text('已添加 ')}{added}{ui_text(' 首。')}'+('；'.join(issues) if issues else '')
         self.stage.setText(message);self.stage.setToolTip(message);self.statusBar().showMessage(message)
@@ -243,6 +243,34 @@ class Window(QMainWindow):
     def dropEvent(self,e):self.add_paths([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]);self.tabs.setCurrentIndex(0);e.acceptProposedAction()
     def add_files(self):
         paths,_=QFileDialog.getOpenFileNames(self,ui_text('添加歌曲'),'',ui_text('音频 (*.mp3 *.wav *.flac *.m4a *.ogg *.aiff *.wma *.mp4)'));self.add_paths(paths)
+    def edit_song_info(self):
+        import song_info
+        from song_info_ui import SongInfoDialog
+        if self.worker or getattr(getattr(self,'full_page',None),'busy',False) or getattr(getattr(self,'vital_page',None),'busy',False):
+            self.warn('请等待当前任务完成 / Wait for the current task');return
+        project_mode=self.tabs.currentIndex()!=0 and self.project is not None
+        if project_mode:
+            value=self.project.get('song_info',dict(song_info.defaults(self.project['title']),bpm=self.project.get('tempo_info',{}).get('bpm',120)))
+            source=self.folder/self.project['audio']
+        else:
+            i=self.queue.currentRow()
+            if i<0 and self.jobs:i=0
+            if i<0:self.warn('请先选择歌曲 / Select a song first');return
+            job=self.jobs[i];source=Path(job['source']);value=job.get('song_info',song_info.defaults(source.stem))
+        d=SongInfoDialog(self,value,source)
+        if not d.exec():return
+        if project_mode:
+            self.checkpoint();song_info.apply(self.project,d.value);self.project['revision']+=1;self.save_project(silent=True)
+            self.fixed.setValue(round(d.value['bpm']));self.refresh_tracks();self.full_page.project=None;self.full_page.mix_path=None
+        else:
+            job['song_info']=d.value;self.refresh_queue()
+            if job.get('folder'):
+                path=Path(job['folder'])/'project.json'
+                if not path.is_file():
+                    self.warn('队列信息已保存，但原工程文件已移动或删除。请重新打开工程后编辑。 / Queue info saved; original project is missing. Reopen the project to edit it.');return
+                p=core.read_json(path);song_info.apply(p,d.value);p['revision']+=1;core.save_json(path,p)
+        self.statusBar().showMessage('歌曲信息已保存；请重新导出 MIDI / FL。 / Song info saved; re-export MIDI / FL.')
+
     def choose_output(self):
         p=QFileDialog.getExistingDirectory(self,ui_text('输出根目录'),self.output.text())
         if p:self.output.setText(p)
@@ -277,7 +305,7 @@ class Window(QMainWindow):
         i=next((i for i,j in enumerate(self.jobs) if j['status']=='等待中'),None)
         if i is None:self.running=False;self.start_btn.setEnabled(True);self.stage.setText(ui_text('队列已结束。双击任务打开结果。'));return
         self.current=i;self.jobs[i]['status']='运行中';self.refresh_queue();self.cancel_btn.setEnabled(True)
-        w=Job(self.jobs[i]['source'],self.output.text(),self.model.currentData(),self.adaptive.isChecked(),self.analysis_mode.currentData());self.worker=w
+        w=Job(self.jobs[i]['source'],self.output.text(),self.model.currentData(),self.adaptive.isChecked(),self.analysis_mode.currentData(),self.jobs[i].get('song_info'));self.worker=w
         w.update.connect(self.job_update);w.done.connect(self.job_done);w.error.connect(self.job_error);w.finished.connect(self.job_finished);w.start()
     def job_update(self,s,p):
         self.progress.setValue(int(p*100));self.stage.setText(s)
@@ -318,6 +346,7 @@ class Window(QMainWindow):
         except Exception as e:audio_error=str(e)
         self.player.stop();self.project=obj;self.folder=Path(p).parent;self.undo=[];self.pending_local=None
         self._saved_identity=(str(self.folder.resolve()),fingerprint(obj))
+        self.fixed.setValue(round(obj.get('song_info',{}).get('bpm',obj['tempo_info'].get('bpm',120))))
         self.range_start.setMaximum(obj['duration']);self.range_start.setValue(0);self.range_end.setMaximum(obj['duration']);self.range_end.setValue(min(20,obj['duration']))
         self.seek.setMaximum(int(obj['duration']*1000));self.refresh_tracks();self.tabs.setCurrentIndex(1)
         if audio_error:
@@ -459,9 +488,17 @@ class Window(QMainWindow):
     def scale_tempo(self,factor):
         if not self.project:return
         if any(not 1<=round(m['tempo']*factor)<=16777215 for m in self.project['tempos']):self.warn(ui_text('速度超出 MIDI 范围'));return
+        if self.project.get('song_info') and not 20<=self.project['song_info']['bpm']/factor<=400:
+            self.warn('BPM must be between 20 and 400');return
         self.checkpoint()
         for m in self.project['tempos']:m['tempo']=int(round(m['tempo']*factor))
         self.project['tempo_info']['bpm']/=factor;self.project['tempo_info']['user_scale']=self.project['tempo_info'].get('user_scale',1)/factor
+        if self.project.get('song_info'):
+            v=self.project['song_info'];v['bpm']/=factor
+            for key in ('detected_tempos',):
+                for m in self.project.get(key,[]):m['tempo']=int(round(m['tempo']*factor))
+            for m in v.get('measurement',{}).get('tempos',[]):m['tempo']=int(round(m['tempo']*factor))
+        self.fixed.setValue(round(self.project['tempo_info']['bpm']))
         self.changed();self.statusBar().showMessage(ui_text('已修改速度解释，音符实际秒时间保持不变。'))
     def do_export(self,bpm):
         if not self.project:self.statusBar().showMessage(ui_text('请先导入歌曲或打开工程，再导出 MIDI。'));return

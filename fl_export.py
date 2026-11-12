@@ -76,7 +76,12 @@ def vital_state(scaffold,patch):
     return state
 
 def build(project,folder,output,options,progress=lambda text,p:None,cancel=lambda:False):
-    project=copy.deepcopy(project);options=copy.deepcopy(options);folder=Path(folder)
+    import song_info
+    original_project=project;project=song_info.export_view(project);options=copy.deepcopy(options);folder=Path(folder)
+    info=song_info.validate(project.get('song_info',{}))
+    if project.get('song_info') and info['mode']!='fixed':
+        raise ValueError('FL 导出需要已选择的固定 BPM；变化速度图请导出 MIDI，不能静默转为 120 BPM。 / Choose fixed BPM for FL export; export variable tempo to MIDI.')
+    BPM=info['bpm'] if project.get('song_info') else 60e6/project['tempos'][0]['tempo']
     tracks=[t for t in project['tracks'] if core.active_notes(t)]
     if not tracks:raise ValueError(ui_text('工程没有有效音符'))
     if any(not fs.is_drum(t) for t in tracks) and not vp.PLUGIN.exists():raise ValueError(ui_text('找不到 Vital VST3：')+str(vp.PLUGIN))
@@ -84,7 +89,7 @@ def build(project,folder,output,options,progress=lambda text,p:None,cancel=lambd
     out=Path(output)/('FL工程_'+time.strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]);out.mkdir(parents=True)
     (out/'Presets').mkdir();(out/'Samples').mkdir();(out/'MIDI').mkdir()
     report={'status':'working','source_revision':project.get('revision'),'title':project.get('title'),'grid_bpm':BPM,'ppq':PPQ,
-            'time_policy':ui_text('原始秒数映射至固定 120 BPM 网格，不量化；不是原曲恒定 BPM 声明'),'channels':[],
+            'time_policy':'Selected BPM; unquantized seconds + shared leading silence','song_info':info,'export_lead_in':project.get('export_lead_in',0),'state_json_offset':s['state_json_offset'],'channels':[],
             'required_plugin':str(vp.PLUGIN),'tested_fl_version':'25.2.4.5242','runtime_verified':False}
     core.save_json(out/'导出报告.json',report)
     try:
@@ -93,7 +98,7 @@ def build(project,folder,output,options,progress=lambda text,p:None,cancel=lambd
             if cancel():raise core.Cancelled()
             progress(ui_text('准备 FL 声部 ')+str(row+1)+'/'+str(len(tracks))+' · '+t['name'],row/len(tracks)*.75)
             notes=fs.events(t);opt=options.get(t['id'],vp.default_options(project)[t['id']])
-            midi=out/'MIDI'/(f'{row + 1:02d}_'+core.safe_name(t['name'])[:65]+'.mid');vp.write_midi(t,project['tempos'],midi)
+            midi=out/'MIDI'/(f'{row + 1:02d}_'+core.safe_name(t['name'])[:65]+'.mid');vp.write_midi(t,project['tempos'],midi,project)
             if fs.is_drum(t):
                 for pitch in sorted({n['pitch'] for n in notes}):
                     sample=out/'Samples'/f'{core.safe_name(t['id'])}_GM_{pitch}.wav'
@@ -107,7 +112,7 @@ def build(project,folder,output,options,progress=lambda text,p:None,cancel=lambd
                     channels.append(dict(name=t['name']+f' · GM {pitch}',role='drums',notes=subset,sample=sample,source_id=t['id'],gm=pitch,sample_origin='estimated_stem' if source_sample else 'basic_synthetic'))
             else:
                 h=None
-                patch,analysis=vp.reference_patch(t,opt,folder,project,cancel);preset=out/'Presets'/(vp.file_stem(t,opt)+'.vital');core.save_json(preset,patch)
+                patch,analysis=vp.reference_patch(next(v for v in original_project['tracks'] if v['id']==t['id']),opt,folder,original_project,cancel);preset=out/'Presets'/(vp.file_stem(t,opt)+'.vital');core.save_json(preset,patch)
                 channels.append(dict(name=opt['name'],role=t['role'],notes=notes,state=vital_state(s,patch),preset=preset,source_id=t['id'],preset_name=patch['preset_name']))
         if len(channels)>125:raise ValueError(ui_text('FL 导出最多支持 125 个音源通道（鼓按音高展开后计数）'))
         cb=[];nb=[];mb=[];clips=[]
@@ -140,8 +145,8 @@ def build(project,folder,output,options,progress=lambda text,p:None,cancel=lambd
             clip=bytearray.fromhex(s['clip']);struct.pack_into('<IHHI',clip,0,0,20480,20480+pid,length);struct.pack_into('<H',clip,12,499-cid);struct.pack_into('<H',clip,18,64);struct.pack_into('<I',clip,32,pid);clips.append(bytes(clip))
             report['channels'].append(dict(index=cid,name=c['name'],source_id=c['source_id'],role=c['role'],mixer=cid+1,pattern=pid,notes=len(packed),
                 instrument='Sampler' if 'sample' in c else 'Vital',preset=str(c.get('preset','')),sample=str(c.get('sample','')),sample_origin=c.get('sample_origin'),preset_name=c.get('preset_name'),gm=c.get('gm'),max_onset_error_seconds=max_tick_error))
-        prefix=[(i,u32(round(BPM*1000)) if i==156 else u16(1) if i==67 else b'\1' if i==9 else d) for i,d in pairs(s,'prefix') if i!=231]
-        prefix.extend([(202,text(str(out)+'\\')),(194,text(project.get('title','StarScore'))),(231,text('StarScore'))])
+        prefix=[(i,u32(round(BPM*1000)) if i==156 else bytes([info['numerator']]) if i==17 else bytes([info['denominator']]) if i==18 else u16(1) if i==67 else b'\1' if i==9 else d) for i,d in pairs(s,'prefix') if i not in (231,195,207)]
+        prefix.extend([(202,text(str(out)+'\\')),(194,text(project.get('title','StarScore'))),(231,text('StarScore')),(207,text(info['artist'])),(195,text(info['notes']))])
         second=next((j for j,(i,d) in enumerate(cb) if i==64 and d==u16(1)),len(cb))
         result=prefix+nb+cb[:second]+mb+cb[second:]+[(99,u16(0)),(241,text(ui_text('StarScore · 全曲'))),(36,b'\0'),(233,b''.join(clips))]
         for cid,c in enumerate(channels):
@@ -169,13 +174,17 @@ def build(project,folder,output,options,progress=lambda text,p:None,cancel=lambd
         target=out/(core.safe_name(project.get('title','StarScore'))[:65]+'.flp');pending=out/'工程生成中.partial';pending.write_bytes(raw);os.replace(pending,target)
         report.update(status='complete',flp=str(target),sha256=core.sha256(target),source_tracks=len(tracks),channel_count=len(channels),note_count=sum(len(c['notes']) for c in channels),duration=project['duration'])
         core.save_json(out/'导出报告.json',report)
-        (out/'打开说明.txt').write_text(ui_text('打开同目录 FLP，切到 SONG 模式播放。旋律已内嵌 Vital；增强工程鼓优先采用估计分离轨采样，其余使用基础合成鼓。\n固定 120 BPM 是时间坐标：保留原始秒数，不把漂移节奏强行量化。\n请保留整个输出文件夹。移动文件夹后如 FL 提示缺少采样，选择此处 Samples 文件夹重新定位。\n需要本机安装 Vital VST3。验证目标 FL Studio 25.2.4；其他版本兼容性未验证。\n'),encoding='utf8')
+        (out/'打开说明.txt').write_text(ui_text('打开同目录 FLP，切到 SONG 模式播放。旋律已内嵌 Vital；增强工程鼓优先采用估计分离轨采样，其余使用基础合成鼓。\nBPM 与拍号来自歌曲信息；音符不量化。对齐小节时会按报告统一添加前置静音。\n请保留整个输出文件夹。移动文件夹后如 FL 提示缺少采样，选择此处 Samples 文件夹重新定位。\n需要本机安装 Vital VST3。验证目标 FL Studio 25.2.4；其他版本兼容性未验证。\n'),encoding='utf8')
         progress(ui_text('FL 工程已生成'),1.);return out,report
     except Exception as e:
         report.update(status='cancelled' if isinstance(e,core.Cancelled) else 'failed',error=str(e));core.save_json(out/'导出报告.json',report);raise
 
 def verify(raw,report):
     e=decode(raw);rows=report['channels'];count=len(rows)
+    assert abs(next(int.from_bytes(d,'little')/1000 for i,d in e if i==156)-report['grid_bpm'])<=.001
+    if 'song_info' in report:
+        assert next(d[0] for i,d in e if i==17)==report['song_info']['numerator']
+        assert next(d[0] for i,d in e if i==18)==report['song_info']['denominator']
     if struct.unpack_from('<H',raw,10)[0]!=count:raise ValueError('Channel count mismatch')
     if [int.from_bytes(d,'little') for i,d in e if i==64]!=list(range(count)):raise ValueError('Channel identity mismatch')
     notes=[d for i,d in e if i==224]
@@ -191,6 +200,7 @@ def verify(raw,report):
     states=[d for i,d in e if i==213];expected=[r for r in rows if r['instrument']=='Vital']
     if len(states)!=len(expected):raise ValueError('Missing Vital')
     for d,r in zip(states,expected):
-        p=json.JSONDecoder().raw_decode(d[d.index(b'{'):].decode('utf8',errors='replace'))[0]
+        a=report.get('state_json_offset',d.index(b'VstW')+176);start=a-176;size=struct.unpack_from('>I',d,start+20)[0]+24
+        p,_=vp._vital_component(d[start:start+size])
         if p['preset_name']!=r['preset_name']:raise ValueError('Wrong Vital preset')
     return True
